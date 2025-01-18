@@ -151,7 +151,7 @@ void readSensor()
 
   ldrVal = map(analogRead(LDR_PIN), 0, 4095, 10, 0);
   // Serial.print("LDR - "); Serial.println(ldrVal);
-  float h = dht.readHumidity();
+  // float h = dht.readHumidity();
   float t = dht.readTemperature(); // or dht.readTemperature(true) for Fahrenheit
 
   if (isnan(h) || isnan(t))
@@ -273,7 +273,7 @@ void setup()
   digitalWrite(wifiLed, LOW);
 
   irrecv.enableIRIn(); // Enabling IR sensor
-  dht.begin();         // Enabling DHT sensor
+  // dht.begin();         // Enabling DHT sensor
 
   Node my_node;
   my_node = RMaker.initNode(nodeName);

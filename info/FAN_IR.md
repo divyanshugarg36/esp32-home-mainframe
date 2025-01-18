@@ -1,0 +1,11 @@
+# Fan IR Codes
+Power - 6E91F300
+Speed 1 - 748BF300
+Speed 2 - 6F90F300
+Speed 3 - 758AF300
+Speed 4 - 6C93F300
+Speed 5 - 7788F300
+Speed Boost - 708FF300
+Timer - 6996F300
+Led - 6897F300
+Sleep - 718EF300

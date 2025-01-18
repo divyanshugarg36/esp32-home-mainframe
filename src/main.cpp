@@ -1,33 +1,24 @@
- /**********************************************************************************
- *  TITLE: Get the Hex code from any IR remote.
- *  Click on the following links to learn more. 
- *  YouTube Video: https://youtu.be/7knQaSuEgsU
- *  Related Blog : https://iotcircuithub.com/arduino-projects/
- *  by Tech StudyCell
- * 
- *  Download the Libraries:
- *  IRremote Library 3.6.1: https://github.com/Arduino-IRremote/Arduino-IRremote
- **********************************************************************************/
+#include <Arduino.h>
+#include <Adafruit_AHTX0.h>
 
-#include <IRremote.h>
- 
-int IR_RECV_PIN = 32;  //D35 Update the pin as per circuit
- 
-IRrecv irrecv(IR_RECV_PIN);
-decode_results results;
- 
-void setup()
-{
+Adafruit_AHTX0 aht;
+
+void setup() {
   Serial.begin(115200);
-  irrecv.enableIRIn(); // Start the receiver
-}
- 
-void loop()
-{
-  if (irrecv.decode(&results))
-  {
-  Serial.print("0x");
-  Serial.println(results.value, HEX); //print the HEX code
-  irrecv.resume();
+  Serial.println("Adafruit AHT10/AHT20 demo!");
+
+  if (! aht.begin()) {
+    Serial.println("Could not find AHT? Check wiring");
+    while (1) delay(10);
   }
+  Serial.println("AHT10 or AHT20 found");
+}
+
+void loop() {
+  sensors_event_t humidity, temp;
+  aht.getEvent(&humidity, &temp);// populate temp and humidity objects with fresh data
+  Serial.print("Temperature: "); Serial.print(temp.temperature); Serial.println(" degrees C");
+  Serial.print("Humidity: "); Serial.print(humidity.relative_humidity); Serial.println("% rH");
+
+  delay(500);
 }
