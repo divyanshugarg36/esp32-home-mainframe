@@ -15,17 +15,17 @@
 #include "WiFi.h"
 #include "WiFiProv.h"
 #include <IRremote.h>
-#include <Adafruit_AHTX0.h>
 #include <SimpleTimer.h>
+#include "AHTSensor.h"
 
-const char *service_name = "PROV_1234RS8";
+const char *service_name = "Garg_home";
 const char *pop = "12345RS8";
 
 // define the Chip Id
-uint32_t espChipId = 5;
+uint8_t espChipId = 1;
 
 // define the Node Name
-char nodeName[] = "ESP32_Relay_8S";
+char nodeName[] = "MAIN_HALL";
 
 // define the Device Names
 char deviceName_1[] = "Switch1";
@@ -34,60 +34,38 @@ char deviceName_2[] = "Switch2";
 // Update the HEX code of IR Remote buttons 0x<HEX CODE>
 #define IR_Button_1 0x80BF49B6
 #define IR_Button_2 0x80BFC936
-#define IR_Button_3 0x80BF33CC
-#define IR_Button_4 0x80BF718E
-#define IR_Button_5 0x80BFF10E
-#define IR_Button_6 0x80BF13EC
-#define IR_Button_7 0x80BF51AE
-#define IR_Button_8 0x80BFD12E
 #define IR_All_Off 0x80BF3BC4
 
 // define the GPIO connected with Relays and switches
-static uint8_t RelayPin1 = 23; // D23
-static uint8_t RelayPin2 = 22; // D22
+static uint8_t RelayPin1 = 23;
+static uint8_t RelayPin2 = 22;
 
-static uint8_t SwitchPin1 = 13; // D13
-static uint8_t SwitchPin2 = 12; // D12
+static uint8_t SwitchPin1 = 13;
+static uint8_t SwitchPin2 = 12;
 
-static uint8_t wifiLed = 2; // D2
+static uint8_t wifiLed = 2;
 static uint8_t gpio_reset = 0;
 static uint8_t IR_RECV_PIN = 35; // D35 (IR receiver pin)
-static uint8_t DHTPIN = 16;      // RX2  pin connected with DHT
-static uint8_t LDR_PIN = 34;     // D34  pin connected with LDR
 
 /* Variable for reading pin status*/
 // Relay State
 bool toggleState_1 = LOW; // Define integer to remember the toggle state for relay 1
 bool toggleState_2 = LOW; // Define integer to remember the toggle state for relay 2
-bool toggleState_3 = LOW; // Define integer to remember the toggle state for relay 3
-bool toggleState_4 = LOW; // Define integer to remember the toggle state for relay 4
-bool toggleState_5 = LOW; // Define integer to remember the toggle state for relay 5
-bool toggleState_6 = LOW; // Define integer to remember the toggle state for relay 6
-bool toggleState_7 = LOW; // Define integer to remember the toggle state for relay 7
-bool toggleState_8 = LOW; // Define integer to remember the toggle state for relay 8
 
 // Switch State
 bool SwitchState_1 = LOW;
 bool SwitchState_2 = LOW;
-bool SwitchState_3 = LOW;
-bool SwitchState_4 = LOW;
-bool SwitchState_5 = LOW;
-bool SwitchState_6 = LOW;
-bool SwitchState_7 = LOW;
-bool SwitchState_8 = LOW;
-
-float temperature1 = 0;
-float humidity1 = 0;
-float ldrVal = 0;
-
-// DHT dht(DHTPIN, DHT11);
 
 IRrecv irrecv(IR_RECV_PIN);
 decode_results results;
 
+AHTSensor ahtSensor;
+bool isAHTActive = false;
+
 SimpleTimer Timer;
 
-// The framework provides some standard device types like switch, lightbulb, fan, temperature sensor.
+// The framework provides some standard device types like:-
+// switch, lightbulb, fan, temperature sensor.
 static Switch my_switch1(deviceName_1, &RelayPin1);
 static Switch my_switch2(deviceName_2, &RelayPin2);
 static TemperatureSensor temperature("Temperature");
@@ -146,33 +124,14 @@ void write_callback(Device *device, Param *param, const param_val_t val, void *p
   }
 }
 
-void readSensor()
-{
-
-  ldrVal = map(analogRead(LDR_PIN), 0, 4095, 10, 0);
-  // Serial.print("LDR - "); Serial.println(ldrVal);
-  // float h = dht.readHumidity();
-  float t = dht.readTemperature(); // or dht.readTemperature(true) for Fahrenheit
-
-  if (isnan(h) || isnan(t))
-  {
-    Serial.println("Failed to read from DHT sensor!");
-    return;
-  }
-  else
-  {
-    humidity1 = h;
-    temperature1 = t;
-    // Serial.print("Temperature - "); Serial.println(t);
-    // Serial.print("Humidity - "); Serial.println(h);
-  }
-}
-
 void sendSensor()
 {
-  readSensor();
-  temperature.updateAndReportParam("Temperature", temperature1);
-  humidity.updateAndReportParam("Temperature", humidity1);
+  if (isAHTActive)
+  {
+    AHTData data = ahtSensor.readData();
+    temperature.updateAndReportParam("Temperature", data.temperature);
+    humidity.updateAndReportParam("Temperature", data.humidity);
+  }
 }
 
 void manual_control()
@@ -211,8 +170,21 @@ void manual_control()
   }
 }
 
+void all_SwitchOff()
+{
+  toggleState_1 = 0;
+  digitalWrite(RelayPin1, HIGH);
+  my_switch1.updateAndReportParam(ESP_RMAKER_DEF_POWER_NAME, toggleState_1);
+  delay(100);
+  toggleState_2 = 0;
+  digitalWrite(RelayPin2, HIGH);
+  my_switch2.updateAndReportParam(ESP_RMAKER_DEF_POWER_NAME, toggleState_2);
+  delay(100);
+}
+
 void ir_remote()
 {
+
   if (irrecv.decode(&results))
   {
     switch (results.value)
@@ -240,18 +212,6 @@ void ir_remote()
   }
 }
 
-void all_SwitchOff()
-{
-  toggleState_1 = 0;
-  digitalWrite(RelayPin1, HIGH);
-  my_switch1.updateAndReportParam(ESP_RMAKER_DEF_POWER_NAME, toggleState_1);
-  delay(100);
-  toggleState_2 = 0;
-  digitalWrite(RelayPin2, HIGH);
-  my_switch2.updateAndReportParam(ESP_RMAKER_DEF_POWER_NAME, toggleState_2);
-  delay(100);
-}
-
 void setup()
 {
 
@@ -273,7 +233,8 @@ void setup()
   digitalWrite(wifiLed, LOW);
 
   irrecv.enableIRIn(); // Enabling IR sensor
-  // dht.begin();         // Enabling DHT sensor
+
+  isAHTActive = ahtSensor.initialize();
 
   Node my_node;
   my_node = RMaker.initNode(nodeName);
@@ -290,8 +251,6 @@ void setup()
 
   Timer.setInterval(2000);
 
-  // This is optional
-  RMaker.enableOTA(OTA_USING_PARAMS);
   // If you want to enable scheduling, set time zone for your region using setTimeZone().
   // The list of available values are provided here https://rainmaker.espressif.com/docs/time-service.html
   //  RMaker.setTimeZone("Asia/Shanghai");
