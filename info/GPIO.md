@@ -20,7 +20,7 @@ The following GPIOs can be configured as **OUTPUT** or **INPUT**:
 - GPIO 32
 - GPIO 15
 - GPIO 2
-- GPIO 0
+- GPIO 0 (This is a Strapping Pin)
 - GPIO 4
 - GPIO 16
 - GPIO 17
