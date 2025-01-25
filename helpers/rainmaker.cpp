@@ -16,7 +16,7 @@
 #include "WiFiProv.h"
 #include <IRremote.h>
 #include <SimpleTimer.h>
-#include "AHTSensor.h"
+#include "./include/AHTSensor.hpp"
 
 const char *service_name = "Garg_home";
 const char *pop = "12345RS8";
@@ -128,9 +128,11 @@ void sendSensor()
 {
   if (isAHTActive)
   {
-    AHTData data = ahtSensor.readData();
-    temperature.updateAndReportParam("Temperature", data.temperature);
-    humidity.updateAndReportParam("Temperature", data.humidity);
+    AHTData ahtData = ahtSensor.readData();
+    Serial.print("Temperature: " + String(ahtData.temperature) + " degrees C");
+    Serial.print("Humidity: " + String(ahtData.humidity) + "% rH");
+    temperature.updateAndReportParam("Temperature", ahtData.temperature);
+    humidity.updateAndReportParam("Humidity", ahtData.humidity);
   }
 }
 
@@ -214,7 +216,6 @@ void ir_remote()
 
 void setup()
 {
-
   Serial.begin(115200);
 
   // Set the Relays GPIOs as output mode
@@ -251,6 +252,7 @@ void setup()
 
   Timer.setInterval(2000);
 
+  RMaker.enableOTA(OTA_USING_PARAMS);
   // If you want to enable scheduling, set time zone for your region using setTimeZone().
   // The list of available values are provided here https://rainmaker.espressif.com/docs/time-service.html
   //  RMaker.setTimeZone("Asia/Shanghai");
