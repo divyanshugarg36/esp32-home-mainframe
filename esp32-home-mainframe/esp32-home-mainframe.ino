@@ -16,7 +16,108 @@
 #include "WiFiProv.h"
 #include <IRremote.h>
 #include <SimpleTimer.h>
+extern "C"
+{
+#include "freertos/FreeRTOS.h"
+#include "freertos/timers.h"
+}
+#include <AsyncMqttClient.h>
 #include "/Users/divyanshu/Development/Arduino/include/AHTSensor.hpp"
+#include "/Users/divyanshu/Development/Arduino/Environment.hpp"
+
+#define MQTT_HOST MQTT_HOST_IP
+#define MQTT_PORT 1883
+
+AsyncMqttClient mqttClient;
+TimerHandle_t mqttReconnectTimer;
+TimerHandle_t wifiReconnectTimer;
+
+int strToInt(char *str)
+{
+    int res = 0;
+    if (strcmp("ON", str) == 0)
+    {
+        res = 100;
+    }
+    return res;
+}
+
+float strToFloat(char *str)
+{
+    return atof(str);
+}
+
+bool strToBool(char *str)
+{
+    bool res = false;
+    if (strcmp("ON", str) == 0)
+    {
+        res = true;
+    }
+    return res;
+}
+
+void MQ_Setup()
+{
+    mqttReconnectTimer = xTimerCreate("mqttTimer", pdMS_TO_TICKS(2000), pdFALSE, (void *)0, reinterpret_cast<TimerCallbackFunction_t>(connectToMqtt));
+    wifiReconnectTimer = xTimerCreate("wifiTimer", pdMS_TO_TICKS(2000), pdFALSE, (void *)0, reinterpret_cast<TimerCallbackFunction_t>(connectToWifi));
+
+    mqttClient.onConnect(onMqttConnect);
+    mqttClient.onDisconnect(onMqttDisconnect);
+    mqttClient.onSubscribe(onMqttSubscribe);
+    mqttClient.onUnsubscribe(onMqttUnsubscribe);
+    mqttClient.onMessage(onMqttMessage);
+    mqttClient.onPublish(onMqttPublish);
+    mqttClient.setServer(MQTT_HOST, MQTT_PORT);
+    // mqttClient.setCredentials("username", "password");
+}
+
+void connectToMqtt()
+{
+    Serial.println("Connecting to MQTT...");
+    mqttClient.connect();
+}
+
+void onMqttConnect(bool sessionPresent)
+{
+    Serial.println("Connected to MQTT.");
+    uint16_t packetIdSub = NULL;
+    // MQTT Subscription to the status topics
+    packetIdSub = mqttClient.subscribe("stat/home/POWER", 1);
+}
+
+void onMqttDisconnect(AsyncMqttClientDisconnectReason reason)
+{
+    Serial.println("Disconnected from MQTT.");
+    if (WiFi.isConnected())
+    {
+        xTimerStart(mqttReconnectTimer, 0);
+    }
+}
+
+void onMqttSubscribe(uint16_t packetId, uint8_t qos)
+{
+    Serial.println("Subscribe acknowledged.");
+    Serial.print("  packetId: ");
+    Serial.println(packetId);
+    Serial.print("  qos: ");
+    Serial.println(qos);
+}
+
+void onMqttUnsubscribe(uint16_t packetId)
+{
+    Serial.println("Unsubscribe acknowledged.");
+    Serial.print("  packetId: ");
+    Serial.println(packetId);
+}
+
+void connectToWifi()
+{
+    Serial.println("Connecting to Wi-Fi...");
+}
+void onMqttPublish(uint16_t packetId)
+{
+}
 
 const char *service_name = "Garg_home";
 const char *pop = "12345RS8";
@@ -30,6 +131,7 @@ char nodeName[] = "MAIN_HALL";
 // define the Device Names
 char deviceName_1[] = "Switch1";
 char deviceName_2[] = "Switch2";
+char deviceName_3[] = "8266 Switch1";
 
 // Update the HEX code of IR Remote buttons 0x<HEX CODE>
 #define IR_Button_1 0x80BF49B6
@@ -68,6 +170,26 @@ SimpleTimer Timer;
 // switch, lightbulb, fan, temperature sensor.
 static Switch my_switch1(deviceName_1, &RelayPin1);
 static Switch my_switch2(deviceName_2, &RelayPin2);
+static Switch my_switch3(deviceName_3, NULL);
+
+void onMqttMessage(char *topic, char *payload, AsyncMqttClientMessageProperties properties, size_t len, size_t index, size_t total)
+{
+    Serial.println("Publish received.");
+    Serial.print("  topic: ");
+    Serial.println(topic);
+    // Parse and act on status messages
+
+    if (strcmp(topic, "stat/home/POWER") == 0)
+    {
+        Serial.println("OutsideLights Matched");
+        char msg[50] = "";
+        strncpy(msg, payload, len);
+        msg[sizeof(payload)] = '\0';
+        Serial.printf("msg: %s\n", msg);
+        my_switch3.updateAndReportParam(ESP_RMAKER_DEF_POWER_NAME, strToBool(msg));
+    }
+}
+
 static TemperatureSensor temperature("Temperature");
 static TemperatureSensor humidity("Humidity");
 
@@ -87,6 +209,19 @@ void sysProvEvent(arduino_event_t *sys_event)
     case ARDUINO_EVENT_WIFI_STA_CONNECTED:
         Serial.printf("\nConnected to Wi-Fi!\n");
         digitalWrite(wifiLed, true);
+        break;
+
+    case SYSTEM_EVENT_STA_GOT_IP:
+        Serial.println("WiFi connected");
+        Serial.println("IP address: ");
+        Serial.print(WiFi.localIP());
+        connectToMqtt();
+        break;
+
+    case SYSTEM_EVENT_STA_DISCONNECTED:
+        Serial.println("WiFi lost connection");
+        xTimerStop(mqttReconnectTimer, 0); // ensure we don't reconnect to MQTT while reconnecting to Wi-Fi
+        xTimerStart(wifiReconnectTimer, 0);
         break;
     }
 }
@@ -121,6 +256,22 @@ void write_callback(Device *device, Param *param, const param_val_t val, void *p
             (toggleState_2 == false) ? digitalWrite(RelayPin2, HIGH) : digitalWrite(RelayPin2, LOW);
             param->updateAndReport(val);
         }
+    }
+    else if ((strcmp(param_name, "Power") == 0) && (strcmp(device_name, deviceName_3) == 0))
+    {
+        Serial.printf("Received value = %d for %s - %s\n", val.val.b, device_name, param_name);
+        bool state = val.val.b;
+        if (state)
+        {
+            mqttClient.publish("cmnd/home/POWER", 1, true, "1");
+            Serial.println("Sent ON");
+        }
+        else
+        {
+            mqttClient.publish("cmnd/home/POWER", 1, true, "0");
+            Serial.println("Sent OFF");
+        }
+        param->updateAndReport(val);
     }
 }
 
@@ -243,14 +394,17 @@ void setup()
     // Standard switch device
     my_switch1.addCb(write_callback);
     my_switch2.addCb(write_callback);
+    my_switch3.addCb(write_callback);
 
     // Add switch device to the node
     my_node.addDevice(my_switch1);
     my_node.addDevice(my_switch2);
+    my_node.addDevice(my_switch3);
+
     my_node.addDevice(temperature);
     my_node.addDevice(humidity);
 
-    Timer.setInterval(2000);
+    Timer.setInterval(5000);
 
     RMaker.enableOTA(OTA_USING_PARAMS);
     // If you want to enable scheduling, set time zone for your region using setTimeZone().
@@ -258,7 +412,7 @@ void setup()
     RMaker.setTimeZone("Asia/Kolkata");
     //  Alternatively, enable the Timezone service and let the phone apps set the appropriate timezone
     RMaker.enableTZService();
-    RMaker.enableSchedule();
+    // RMaker.enableSchedule();
 
     // Service Name
     for (int i = 0; i < 17; i = i + 8)
@@ -269,6 +423,9 @@ void setup()
     Serial.printf("\nChip ID:  %d Service Name: %s\n", espChipId, service_name);
 
     Serial.printf("\nStarting ESP-RainMaker\n");
+
+    MQ_Setup();
+
     RMaker.start();
 
     WiFi.onEvent(sysProvEvent);
@@ -280,6 +437,7 @@ void setup()
 
     my_switch1.updateAndReportParam(ESP_RMAKER_DEF_POWER_NAME, false);
     my_switch2.updateAndReportParam(ESP_RMAKER_DEF_POWER_NAME, false);
+    my_switch3.updateAndReportParam(ESP_RMAKER_DEF_POWER_NAME, false);
 }
 
 void loop()
